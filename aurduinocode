@@ -1,0 +1,58 @@
+#include <Arduino.h>
+
+#define BAUD_RATE 115200
+#define SAMPLE_RATE 256 // Filter sample rate
+#define INPUT_PIN A0
+#define BUFFER_SIZE 100
+
+byte reading[BUFFER_SIZE];
+int head = 0, tail = 0;
+int tempSample = 0;
+
+// Timer and interrupt configuration
+int interrupt_Number = (16000000 / (SAMPLE_RATE * 8)) - 1;
+
+void setup() {
+  Serial.begin(BAUD_RATE);
+  pinMode(INPUT_PIN, INPUT);
+
+  // Timer setup
+  cli();
+  TCCR1A = 0;
+  TCCR1B = 0;
+  TCNT1 = 0;
+  OCR1A = interrupt_Number;
+  TCCR1B |= (1 << WGM12) | (1 << CS11);
+  TIMSK1 |= (1 << OCIE1A);
+  sei();
+}
+
+ISR(TIMER1_COMPA_vect) {
+  // Read and filter EEG signal
+  tempSample = analogRead(INPUT_PIN);
+  float filteredSignal = EEGFilter(tempSample);
+
+  // Store filtered signal in the buffer
+  reading[head] = (byte)filteredSignal;
+  head = (head + 1) % BUFFER_SIZE;
+}
+
+void loop() {
+  while (head != tail) {
+    Serial.println(reading[tail]);
+    tail = (tail + 1) % BUFFER_SIZE;
+  }
+}
+
+float EEGFilter(float input) {
+  float output = input;
+  static float z1, z2;
+  {
+    float x = output - (-0.95391350 * z1) - (0.25311356 * z2);
+    output = 0.00735282 * x + 0.01470564 * z1 + 0.00735282 * z2;
+    z2 = z1;
+    z1 = x;
+  }
+  // Add additional filter sections as needed
+  return output;
+}
